@@ -1,5 +1,4 @@
-/* solium-disable security/no-block-members */
-pragma solidity ^0.4.18;
+pragma solidity 0.4.18;
 
 import "./lib/SafeMath.sol";
 import "./lib/Math.sol";

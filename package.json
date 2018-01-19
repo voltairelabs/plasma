@@ -9,7 +9,7 @@
     "test": "truffle test",
     "compile": "truffle compile",
     "deploy": "truffle deploy",
-    "lint": "solium -d contracts/"
+    "lint": "solhint -d contracts/**/*.sol"
   },
   "author": "Jaynti Kanani <jdkanani@gmail.com>",
   "license": "MIT",
@@ -18,12 +18,12 @@
     "babel-preset-es2015": "^6.24.1",
     "babel-preset-stage-2": "^6.24.1",
     "babel-preset-stage-3": "^6.24.1",
-    "babel-register": "^6.26.0",
-    "solium": "^1.1.2"
+    "babel-register": "^6.26.0"
   },
   "dependencies": {
     "ethereumjs-util": "^5.1.3",
     "ganache-cli": "^6.0.3",
+    "solhint": "^1.1.9",
     "truffle": "^4.0.5"
   }
 }

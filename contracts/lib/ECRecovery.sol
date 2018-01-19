@@ -1,4 +1,4 @@
-pragma solidity ^0.4.18;
+pragma solidity 0.4.18;
 
 
 /**
@@ -6,7 +6,6 @@ pragma solidity ^0.4.18;
  *
  * @dev Based on https://gist.github.com/axic/5b33912c6f61ae6fd96d6c4a47afde6d
  */
-
 library ECRecovery {
 
   /**
@@ -29,7 +28,7 @@ library ECRecovery {
     }
 
     // Divide the signature in v, r, and s variables
-    // solium-disable-next-line security/no-inline-assembly
+    // solhint-disable-next-line no-inline-assembly
     assembly {
       r := mload(add(sig, 32))
       s := mload(add(sig, 64))
@@ -45,12 +44,7 @@ library ECRecovery {
     if (v != 27 && v != 28) {
       return (address(0));
     } else {
-      return ecrecover(
-        hash,
-        v,
-        r,
-        s
-      );
+      return ecrecover(hash, v, r, s);
     }
   }
 }

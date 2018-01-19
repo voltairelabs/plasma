@@ -1,5 +1,5 @@
-/* solium-disable */
-pragma solidity ^0.4.18;
+/* solhint-disable */
+pragma solidity 0.4.18;
 
 
 /**
