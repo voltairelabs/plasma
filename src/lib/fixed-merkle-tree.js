@@ -48,8 +48,14 @@ export default class FixedMerkleTree {
     return this.layers[this.layers.length - 1][0]
   }
 
-  getPlasmaProof(leafIndex) {
-    let index = leafIndex
+  getPlasmaProof(leaf) {
+    let index = -1
+    for (let i = 0; i < this.leaves.length; i++) {
+      if (Buffer.compare(leaf, this.leaves[i]) === 0) {
+        index = i
+      }
+    }
+
     const proof = []
     if (index <= this.getLeaves().length) {
       let siblingIndex
