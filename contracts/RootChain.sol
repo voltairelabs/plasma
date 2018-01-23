@@ -129,9 +129,6 @@ contract RootChain {
     return (exits[priority].owner, exits[priority].amount, exits[priority].utxoPos);
   }
 
-  event E(uint256 e);
-  event B(bytes32 b);
-  event BB(bytes bb);
   function startExit(
     uint256[3] txPos,
     bytes txBytes,
