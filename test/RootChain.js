@@ -17,6 +17,12 @@ const rlp = utils.rlp
 const keyPair = require('./keypair')
 keyPair.key1 = utils.toBuffer(keyPair.key1)
 
+const printReceiptEvents = receipt => {
+  receipt.logs.forEach(l => {
+    console.log(JSON.stringify(l.args))
+  })
+}
+
 const getDepositTx = (owner, value) => {
   return new Transaction([
     new Buffer([]), // block number 1
@@ -320,6 +326,124 @@ contract('Root chain', function(accounts) {
       assert.equal(user, owner)
       assert.equal(amount.toString(), value)
       assert.deepEqual(pos, posResult.map(p => p.toNumber()))
+    })
+  })
+
+  describe('challenge exit', async function() {
+    const value = new BN(web3.toWei(1, 'ether'))
+
+    let rootChain
+    let owner
+    let depositTx
+
+    // before task
+    before(async function() {
+      rootChain = await RootChain.new({from: accounts[0]})
+      owner = keyPair.address1 // same as accounts[0]
+    })
+
+    it('should allow user to challenge bad tx', async function() {
+      //
+      // deposit
+      //
+
+      depositTx = getDepositTx(owner, value)
+
+      // serialize tx bytes
+      let depositTxBytes = utils.bufferToHex(depositTx.serializeTx())
+
+      // deposit
+      await rootChain.deposit(depositTxBytes, {
+        from: owner,
+        value: value
+      })
+
+      //
+      // exit
+      //
+
+      let currentChildBlock = 1
+      let merkleHash = depositTx.merkleHash()
+      let tree = new FixedMerkleTree(16, [merkleHash])
+      let proof = utils.bufferToHex(
+        Buffer.concat(tree.getPlasmaProof(merkleHash))
+      )
+      let childChainRoot = utils.toBuffer(
+        (await rootChain.getChildChain(currentChildBlock))[0]
+      )
+      let confirmSig = depositTx.confirmSig(childChainRoot, keyPair.key1)
+      let sigs = utils.bufferToHex(
+        Buffer.concat([depositTx.sig1, depositTx.sig2, confirmSig])
+      )
+
+      let receipt = await rootChain.startExit(
+        [currentChildBlock, 0, 0],
+        depositTxBytes,
+        proof,
+        sigs
+      )
+
+      //
+      // transfer
+      //
+
+      let transferTx = new Transaction([
+        utils.toBuffer(currentChildBlock), // block number for first input
+        new Buffer([]), // tx number for 1st input
+        new Buffer([]), // previous output number 1 (as 1st input)
+        new Buffer([]), // block number 2
+        new Buffer([]), // tx number 2
+        new Buffer([]), // previous output number 2 (as 2nd input)
+
+        utils.toBuffer(owner), // output address 1
+        value.toArrayLike(Buffer, 'be', 32), // value for output 2
+
+        utils.zeros(20), // output address 2
+        new Buffer([]), // value for output 2
+
+        new Buffer([]) // fee
+      ])
+
+      // serialize tx bytes
+      let transferTxBytes = utils.bufferToHex(transferTx.serializeTx())
+      transferTx.sign1(keyPair.key1) // sign1
+      merkleHash = transferTx.merkleHash()
+      tree = new FixedMerkleTree(16, [merkleHash])
+      proof = utils.bufferToHex(Buffer.concat(tree.getPlasmaProof(merkleHash)))
+
+      // mine 7 more blocks
+      const lastBlock = web3.eth.blockNumber
+      await mineToBlockHeight(web3.eth.blockNumber + 7)
+      // submit block
+      receipt = await rootChain.submitBlock(utils.bufferToHex(tree.getRoot()))
+
+      //
+      // challenge exit
+      //
+
+      currentChildBlock = 2
+      childChainRoot = utils.toBuffer(
+        (await rootChain.getChildChain(currentChildBlock))[0]
+      )
+      confirmSig = transferTx.confirmSig(childChainRoot, keyPair.key1)
+      sigs = utils.bufferToHex(
+        Buffer.concat([transferTx.sig1, transferTx.sig2])
+      )
+
+      const exitId = (currentChildBlock - 1) * 1000000000 + 10000 * 0 + 0
+      receipt = await rootChain.challengeExit(
+        exitId,
+        [currentChildBlock, 0, 0],
+        transferTxBytes,
+        proof,
+        sigs,
+        utils.bufferToHex(confirmSig)
+      )
+
+      assert.equal(
+        (await rootChain.getExit(exitId))[0].toString(),
+        utils.bufferToHex(utils.zeros(20))
+      )
     })
   })
 })
