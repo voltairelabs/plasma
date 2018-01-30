@@ -120,4 +120,21 @@ export default class Transaction {
     // create hash
     return rlp.encode(items)
   }
+
+  // check if transaction is valid
+  validate() {
+    // TODO remove hack
+    const inputKey1 = [this.blknum1, this.txindex1, this.oindex1]
+      .map(v => utils.bufferToInt(v).toString())
+      .join(':')
+    const inputKey2 = [this.blknum2, this.txindex2, this.oindex2]
+      .map(v => utils.bufferToInt(v).toString())
+      .join(':')
+
+    if (inputKey1 !== '0:0:0' && inputKey1 === inputKey2) {
+      return false
+    }
+
+    return true
+  }
 }

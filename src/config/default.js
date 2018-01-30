@@ -13,5 +13,9 @@ export default {
     name: process.env.APP_NAME || 'Plasma Chain',
     port: process.env.APP_PORT || 8080
   },
-  chain: {}
+  chain: {
+    web3Provider: 'http://localhost:8545',
+    rootChainContract: '0xb4ee6879ba231824651991c8f0a34af4d6bfca6a',
+    daggerEndpoint: 'mqtt://localhost:1883'
+  }
 }

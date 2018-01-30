@@ -3,3 +3,8 @@ build/
 dist/
 
 *.env
+
+db/*
+!db/.gitkeep
+testrpc-db/*
+!testrpc-db/.gitkeep

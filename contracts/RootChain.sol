@@ -20,6 +20,8 @@ contract RootChain {
    * Events
    */
   event Deposit(address depositor, uint256 amount);
+  event ChildBlockCreated(uint256 blockNumber, bytes32 root);
+  event DepositBlockCreated(uint256 blockNumber, bytes32 root, bytes txBytes);
 
   /*
    *  Storage
@@ -84,6 +86,8 @@ contract RootChain {
       root: root,
       createdAt: block.timestamp
     });
+    ChildBlockCreated(currentChildBlock, root);
+
     currentChildBlock = currentChildBlock.add(1);
     lastParentBlock = block.number;
   }
@@ -109,6 +113,9 @@ contract RootChain {
       root: root,
       createdAt: block.timestamp
     });
+    ChildBlockCreated(currentChildBlock, root);
+    DepositBlockCreated(currentChildBlock, root, txBytes);
+
     currentChildBlock = currentChildBlock.add(1);
     Deposit(txList[6].toAddress(), txList[7].toUint());
   }
