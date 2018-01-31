@@ -5,8 +5,7 @@
   "description": "",
   "main": "truffle-config.js",
   "scripts": {
-    "testrpc":
-      "ganache-cli --db=./testrpc-db --mnemonic='clock radar mass judge dismiss just intact mind resemble fringe diary casino' --gasLimit=13000000",
+    "testrpc": "ganache-cli --db=./testrpc-db --mnemonic='clock radar mass judge dismiss just intact mind resemble fringe diary casino' --gasLimit=13000000",
     "test": "truffle test",
     "test-ci": "scripts/test.sh",
     "compile": "truffle compile",
@@ -45,6 +44,7 @@
     "ethereumjs-util": "^5.1.3",
     "express": "^4.16.2",
     "jsonschema": "^1.2.2",
+    "level": "^2.1.2",
     "m-tree": "0.0.4",
     "morgan": "^1.9.0",
     "safe-buffer": "^5.1.1",

@@ -13,3 +13,8 @@ process.on('SIGINT', function() {
   chain.stop()
   process.exit()
 })
+
+// check for unhandledRejection
+process.on('unhandledRejection', (reason, p) => {
+  console.log('Unhandled Rejection at: Promise', p, 'reason:', reason)
+})

@@ -68,10 +68,13 @@ contract('Root chain', function(accounts) {
         value: value
       })
 
-      assert.equal(receipt.logs.length, 1)
-      assert.equal(receipt.logs[0].event, 'Deposit')
-      assert.equal(receipt.logs[0].args.depositor, owner)
-      assert.equal(receipt.logs[0].args.amount.toString(), value.toString())
+      assert.equal(receipt.logs.length, 3)
+      assert.equal(receipt.logs[0].event, 'ChildBlockCreated')
+      assert.equal(receipt.logs[1].event, 'DepositBlockCreated')
+
+      assert.equal(receipt.logs[2].event, 'Deposit')
+      assert.equal(receipt.logs[2].args.depositor, owner)
+      assert.equal(receipt.logs[2].args.amount.toString(), value.toString())
     })
 
     it('should allow user to start withdraw ETH from plasma chain', async function() {

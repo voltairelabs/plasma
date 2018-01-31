@@ -20,7 +20,7 @@ const routes = Router()
 /**
  * POST RPC data
  */
-routes.post('/', async (req, res) => {
+routes.post('/', (req, res) => {
   const data = req.body
   const v = rpcValidator.validate(data, rpcSchema)
   if (v.errors && v.errors.length > 0) {

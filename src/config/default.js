@@ -2,7 +2,7 @@ import path from 'path'
 import dotenv from 'dotenv'
 
 // load config env
-let root = path.normalize(__dirname + '/../..')
+let root = path.normalize(`${__dirname}/../..`)
 const configFile = `${root}/config.env`
 dotenv.config({path: configFile, silent: true})
 
@@ -14,6 +14,8 @@ export default {
     port: process.env.APP_PORT || 8080
   },
   chain: {
+    db: './db',
+
     web3Provider: 'http://localhost:8545',
     rootChainContract: '0xb4ee6879ba231824651991c8f0a34af4d6bfca6a',
     daggerEndpoint: 'mqtt://localhost:1883'
