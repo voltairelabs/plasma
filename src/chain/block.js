@@ -62,6 +62,7 @@ export default class Block {
     }
 
     return {
+      number: utils.bufferToInt(this.header.number),
       hash: utils.bufferToHex(this.hash),
       header: this.header.toJSON(labeled),
       transactions: this.transactions.map(tx => tx.toJSON(labeled))

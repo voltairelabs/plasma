@@ -1,5 +1,8 @@
+import utils from 'ethereumjs-util'
 import {Router} from 'express'
 import {Validator} from 'jsonschema'
+
+import chain from '../chain'
 
 // RPC schema and validator
 const rpcSchema = {
@@ -17,6 +20,32 @@ const rpcValidator = new Validator()
 // create router
 const routes = Router()
 
+const methods = {
+  async getBlockByNumber(params = []) {
+    const [blockNumber] = params
+    let block = {}
+    try {
+      const obj = await chain.getBlock(blockNumber)
+      if (obj) {
+        block = obj.toJSON(true)
+      }
+    } catch (e) {}
+    return block
+  },
+
+  async getBlockByHash(params = []) {
+    const [blockHash] = params
+    let block = {}
+    try {
+      const obj = await chain.getBlock(utils.toBuffer(blockHash))
+      if (obj) {
+        block = obj.toJSON(true)
+      }
+    } catch (e) {}
+    return block
+  }
+}
+
 /**
  * POST RPC data
  */
@@ -30,7 +59,24 @@ routes.post('/', (req, res) => {
     })
   }
 
-  res.json({success: true})
+  const fn = methods[data.method]
+  if (!fn) {
+    return res.status(404).json({
+      message: 'No method found.',
+      error: true
+    })
+  }
+
+  fn(data.params)
+    .then(result => {
+      return res.json(result)
+    })
+    .catch(e => {
+      return res.status(400).json({
+        message: e.toString(),
+        error: true
+      })
+    })
 })
 
 export default routes

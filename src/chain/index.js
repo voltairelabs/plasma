@@ -44,7 +44,7 @@ class Chain {
           new BN(blockNumber).toArrayLike(Buffer, 'be', 32),
           utils.toBuffer(root)
         ], // header
-        [rlp.decode(data.returnValues.txBytes)] // tx list
+        [rlp.decode(txBytes)] // tx list
       )
     })
   }
@@ -87,12 +87,12 @@ class Chain {
 
     // determine BlockTag type
     if (Buffer.isBuffer(blockTag)) {
-      return await lookupByHash(blockTag)
+      return lookupByHash(blockTag)
     }
 
     if (/^[0-9]+$/gi.test(String(blockTag))) {
       const blockHash = await lookupNumberToHash(blockTag)
-      return await lookupByHash(blockHash)
+      return lookupByHash(blockHash)
     }
 
     return null
@@ -104,7 +104,7 @@ class Chain {
    * @param {String} hash - the sha256 hash of the rlp encoding of the block
    */
   async getDetails(hash) {
-    return await this.detailsDb.get('detail:' + hash.toString('hex'), {
+    return this.detailsDb.get('detail:' + hash.toString('hex'), {
       valueEncoding: 'json'
     })
   }
@@ -197,7 +197,7 @@ class Chain {
       }
     })
 
-    return await Promise.all([
+    return Promise.all([
       this.blockDb.batch(blockDbOps),
       this.detailsDb.batch(detailsDbOps)
     ])
