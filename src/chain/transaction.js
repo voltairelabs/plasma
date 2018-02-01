@@ -165,7 +165,8 @@ export default class Transaction {
     let fees = new BN(this.raw[10])
 
     // calculate input sum
-    for (var i = 0; i < this.totalInputs; i++) {
+    let i
+    for (i = 0; i < this.totalInputs; i++) {
       const inputTx = await this.getInputTransaction(chain, i)
       if (inputTx) {
         inputSum = inputSum.add(
@@ -175,7 +176,7 @@ export default class Transaction {
     }
 
     // calculate output sum
-    for (var i = 0; i < this.totalOutputs; i++) {
+    for (i = 0; i < this.totalOutputs; i++) {
       outputSum = outputSum.add(new BN(this.raw[2 * i + 7]))
     }
 

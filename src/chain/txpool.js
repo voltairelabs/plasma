@@ -1,7 +1,6 @@
 import timestamp from 'monotonic-timestamp'
 import {Buffer} from 'safe-buffer'
 import Transaction from './transaction'
-import utils from 'ethereumjs-util'
 
 export default class TxPool {
   constructor(db) {
