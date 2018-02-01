@@ -1,8 +1,10 @@
 import utils from 'ethereumjs-util'
 import {Buffer} from 'safe-buffer'
 
-// const BN = utils.BN
+const BN = utils.BN
 const rlp = utils.rlp
+const ZeroBalance = new BN(0)
+const BlankAddress = utils.bufferToHex(utils.zeros(20))
 const getFields = () => [
   {
     name: 'blknum1',
@@ -65,6 +67,10 @@ const getFields = () => [
 export default class Transaction {
   constructor(data) {
     utils.defineProperties(this, getFields(), data)
+
+    // total inputs & oututs
+    this.totalInputs = 2
+    this.totalOutputs = 2
   }
 
   hash(includeSignature = false) {
@@ -122,19 +128,103 @@ export default class Transaction {
   }
 
   // check if transaction is valid
-  validate() {
-    // TODO remove hack
-    const inputKey1 = [this.blknum1, this.txindex1, this.oindex1]
-      .map(v => utils.bufferToInt(v).toString())
-      .join(':')
-    const inputKey2 = [this.blknum2, this.txindex2, this.oindex2]
-      .map(v => utils.bufferToInt(v).toString())
-      .join(':')
+  _validateFields(depositTx = false) {
+    if (depositTx) {
+      // invalid if any input is not null
+      if (!this._inputNull(0) || !this._inputNull(1)) {
+        return false
+      }
 
-    if (inputKey1 !== '0:0:0' && inputKey1 === inputKey2) {
+      // invalid if 1st output is null
+      if (this._outputNull(0)) {
+        return false
+      }
+    } else {
+      // invalid if 1st input is null
+      if (this._inputNull(0)) {
+        return false
+      }
+
+      // invalid if both inputs are same
+      if (this._inputKey(0) === this._inputKey(1)) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  async validate(chain, depositTx = false) {
+    if (!this._validateFields(depositTx)) {
+      return false
+    }
+
+    // check while making blocks
+    let inputSum = ZeroBalance
+    let outputSum = ZeroBalance
+    let fees = new BN(this.raw[10])
+
+    // calculate input sum
+    for (var i = 0; i < this.totalInputs; i++) {
+      const inputTx = await this.getInputTransaction(chain, i)
+      if (inputTx) {
+        inputSum = inputSum.add(
+          new BN(inputTx.raw[7 + utils.bufferToInt(this.raw[3 * i + 2]) * 2])
+        )
+      }
+    }
+
+    // calculate output sum
+    for (var i = 0; i < this.totalOutputs; i++) {
+      outputSum = outputSum.add(new BN(this.raw[2 * i + 7]))
+    }
+
+    // invalid if sum(inputs) < fees + sum(outputs)
+    if (inputSum.lt(fees.add(outputSum))) {
       return false
     }
 
     return true
+  }
+
+  async getInputTransaction(chain, inputIndex) {
+    if (this._inputNull(inputIndex)) {
+      return null
+    }
+
+    const from = inputIndex * 3
+    let [blockNumber, txIndex] = this.raw.slice(from, from + 3)
+    try {
+      txIndex = utils.bufferToInt(txIndex) // parse to int
+      const block = await chain.getBlock(new BN(blockNumber).toNumber())
+      if (block.transactions.length > utils.bufferToInt(txIndex)) {
+        return block.transactions[txIndex]
+      }
+    } catch (e) {}
+    return null
+  }
+
+  //
+  // utils methods
+  //
+
+  _inputKey(inputIndex) {
+    return this.raw
+      .slice(inputIndex * 3, 3)
+      .map(v => utils.bufferToInt(v).toString())
+      .join('-')
+  }
+
+  _inputNull(inputIndex) {
+    const from = inputIndex * 3
+    return this.raw.slice(from, from + 3).every(v => utils.bufferToInt(v) === 0)
+  }
+
+  _outputNull(outputIndex) {
+    const from = 6 + outputIndex * 2
+    return (
+      utils.bufferToHex(this.raw[from]) === BlankAddress &&
+      new BN(this.raw[from + 1]).isZero()
+    )
   }
 }

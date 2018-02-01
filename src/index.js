@@ -9,7 +9,7 @@ const chain = require('./chain').default
 chain.start()
 
 process.on('SIGINT', function() {
-  console.log('Stoping plasma chain')
+  console.log('Stopping plasma chain')
   chain.stop()
   process.exit()
 })

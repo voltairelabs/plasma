@@ -46,6 +46,7 @@
     "jsonschema": "^1.2.2",
     "level": "^2.1.2",
     "m-tree": "0.0.4",
+    "monotonic-timestamp": "0.0.9",
     "morgan": "^1.9.0",
     "safe-buffer": "^5.1.1",
     "web3": "^1.0.0-beta.29"

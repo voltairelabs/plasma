@@ -5,6 +5,8 @@ import level from 'level'
 
 import config from '../config'
 import Block from './block'
+import Transaction from './transaction'
+import TxPool from './txpool'
 
 import RootChain from '../../build/contracts/RootChain.json'
 
@@ -16,6 +18,12 @@ class Chain {
     this.options = options
     this.blockDb = level(`${this.options.db}/block`)
     this.detailsDb = level(`${this.options.db}/details`)
+    this.txPool = new TxPool(
+      level(`${this.options.db}/txpool`, {
+        keyEncoding: 'binary',
+        valueEncoding: 'binary'
+      })
+    )
 
     this.web3 = new Web3(this.options.web3Provider)
     this.parentContract = new this.web3.eth.Contract(
@@ -44,7 +52,7 @@ class Chain {
           new BN(blockNumber).toArrayLike(Buffer, 'be', 32),
           utils.toBuffer(root)
         ], // header
-        [rlp.decode(txBytes)] // tx list
+        [txBytes] // tx list
       )
     })
   }
@@ -54,10 +62,29 @@ class Chain {
     this.depositBlockWatcher.stopWatching()
   }
 
-  async addTx(tx) {}
+  async addTx(txBytes) {
+    // get tx
+    const tx = new Transaction(rlp.decode(txBytes))
+
+    // validate
+    const isValid = await tx.validate(this)
+    if (!isValid) {
+      return
+    }
+
+    // add tx to pool
+    await this.txPool.push(tx)
+    console.log((await this.txPool.popTxs()).map(t => t.toJSON(true)))
+
+    // return merkle hash for reference
+    return tx.merkleHash()
+  }
 
   async addDepositBlock(header, txs) {
-    const depositBlock = new Block([header, txs])
+    const depositBlock = new Block(
+      [header, txs.map(tx => rlp.decode(tx))],
+      true
+    )
     await this.putBlock(depositBlock)
   }
 

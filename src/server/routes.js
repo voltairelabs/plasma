@@ -21,8 +21,7 @@ const rpcValidator = new Validator()
 const routes = Router()
 
 const methods = {
-  async getBlockByNumber(params = []) {
-    const [blockNumber] = params
+  async getBlockByNumber([blockNumber]) {
     let block = {}
     try {
       const obj = await chain.getBlock(blockNumber)
@@ -33,8 +32,7 @@ const methods = {
     return block
   },
 
-  async getBlockByHash(params = []) {
-    const [blockHash] = params
+  async getBlockByHash([blockHash]) {
     let block = {}
     try {
       const obj = await chain.getBlock(utils.toBuffer(blockHash))
@@ -43,6 +41,15 @@ const methods = {
       }
     } catch (e) {}
     return block
+  },
+
+  async sendTx([txBytes]) {
+    try {
+      const hash = await chain.addTx(txBytes)
+      return utils.bufferToHex(hash)
+    } catch (e) {
+      console.log(e)
+    }
   }
 }
 
@@ -69,7 +76,11 @@ routes.post('/', (req, res) => {
 
   fn(data.params)
     .then(result => {
-      return res.json(result)
+      return res.json({
+        id: data.id,
+        jsonrpc: data.jsonrpc,
+        result: result
+      })
     })
     .catch(e => {
       return res.status(400).json({
