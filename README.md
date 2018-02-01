@@ -1,5 +1,7 @@
 # Plasma MVP
 
+[![Build Status](https://travis-ci.org/maticnetwork/plasma.svg?branch=master)](https://travis-ci.org/maticnetwork/plasma)
+
 Install dependencies with
 
 ```
