@@ -158,19 +158,28 @@ export default class Transaction {
     let outputSum = ZeroBalance
     let fees = new BN(this.raw[10])
 
-    // calculate input sum
     let i
     for (i = 0; i < this.totalInputs; i++) {
       const inputTx = await this.getInputTransaction(chain, i)
       if (inputTx) {
+        // calculate input sum
         inputSum = inputSum.add(
           new BN(inputTx.raw[7 + utils.bufferToInt(this.raw[3 * i + 2]) * 2])
         )
+
+        // check signature
+        const vrs = utils.fromRpcSig(this.raw[11 + i]) // parse {v,r,s} from sig
+        const recovered = utils.pubToAddress(
+          utils.ecrecover(this.hash(false), vrs.v, vrs.r, vrs.s)
+        )
+        if (recovered.compare(this.raw[2 * i + 6]) !== 0) {
+          return false
+        }
       }
     }
 
-    // calculate output sum
     for (i = 0; i < this.totalOutputs; i++) {
+      // calculate output sum
       outputSum = outputSum.add(new BN(this.raw[2 * i + 7]))
     }
 
