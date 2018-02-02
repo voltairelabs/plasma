@@ -41,6 +41,7 @@
     "body-parser": "^1.18.2",
     "dotenv": "^4.0.0",
     "eth-dagger": "0.0.1-beta.2",
+    "ethereumjs-tx": "^1.3.3",
     "ethereumjs-util": "^5.1.3",
     "express": "^4.16.2",
     "jsonschema": "^1.2.2",

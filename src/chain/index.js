@@ -2,11 +2,13 @@ import Web3 from 'web3'
 import utils from 'ethereumjs-util'
 import EthDagger from 'eth-dagger'
 import level from 'level'
+import EthereumTx from 'ethereumjs-tx'
 
 import config from '../config'
 import Block from './block'
 import Transaction from './transaction'
 import TxPool from './txpool'
+import FixedMerkleTree from '../lib/fixed-merkle-tree'
 
 import RootChain from '../../build/contracts/RootChain.json'
 
@@ -25,26 +27,45 @@ class Chain {
       })
     )
 
+    // create instance for web3
     this.web3 = new Web3(this.options.web3Provider)
+
+    // create root chain contract
     this.parentContract = new this.web3.eth.Contract(
       RootChain.abi,
       this.options.rootChainContract
     )
 
     // get dagger contract from web3 contract
-    const daggerObject = new EthDagger(this.options.daggerEndpoint)
-    this.parentDaggerContract = daggerObject.contract(this.parentContract)
+    this.daggerObject = new EthDagger(this.options.daggerEndpoint)
+    this.parentDaggerContract = this.daggerObject.contract(this.parentContract)
 
-    // latest
-    this.depositBlockWatcher = this.parentDaggerContract.events.DepositBlockCreated(
-      {
-        room: 'latest'
-      }
-    )
+    //
+    // Watchers
+    //
+
+    // watch root chain's block
+    this._rootBlock = this._rootBlock.bind(this)
+    this.daggerObject.on('latest:block.number', this._rootBlock)
+
+    // block watcher
+    this.blockWatcher = this.parentDaggerContract.events.ChildBlockCreated()
+
+    // deposit block watcher
+    this.depositBlockWatcher = this.parentDaggerContract.events.DepositBlockCreated()
   }
 
-  start() {
+  async start() {
     // start listening block
+    this.blockWatcher.watch((data, removed) => {
+      const {blockNumber, root} = data.returnValues
+      console.log(`New block created, number: ${blockNumber}, root: ${root}`)
+
+      // update block number for last submitted block
+      this._updateBlockNumber(root, blockNumber)
+    })
+
+    // start listening deposit block
     this.depositBlockWatcher.watch((data, removed) => {
       const {blockNumber, root, txBytes} = data.returnValues
       this.addDepositBlock(
@@ -57,16 +78,83 @@ class Chain {
     })
   }
 
-  stop() {
+  async stop() {
+    // stop watching root block number
+    this.daggerObject.off('latest:block.number', this._rootBlock)
+
+    // stop watching block
+    this.blockWatcher.stopWatching()
+
     // stop watching deposit block
     this.depositBlockWatcher.stopWatching()
+  }
+
+  async _updateBlockNumber(root, blockNumber) {
+    const block = await this.getBlock(utils.toBuffer(root))
+    if (block) {
+      try {
+        // update block number by root
+        block.header.number = new BN(blockNumber).toBuffer()
+
+        // put block
+        await this.putBlock(block)
+      } catch (e) {
+        console.log(`Error while updating block details ${blockNumber}`, e)
+      }
+    }
+  }
+
+  _rootBlock(data) {
+    const rootBlock = new BN(data).toNumber()
+    this._lastBlock = this._lastBlock || rootBlock
+
+    if (rootBlock - this._lastBlock > this.options.blockPeriod) {
+      this._lastBlock = rootBlock
+
+      // submit block
+      this._submitBlock()
+    }
+  }
+
+  async _submitBlock() {
+    const txs = await this.txPool.popTxs()
+    if (txs.length === 0) {
+      return
+    }
+
+    console.log(`Submitting block with total ${txs.length} transactions`)
+    const merkleHashes = txs.map(tx => tx.merkleHash())
+    const tree = new FixedMerkleTree(16, merkleHashes)
+    const newBlock = new Block([
+      [Buffer.from([]), tree.getRoot()], // header
+      txs.map(tx => tx.serializeTx(true)) // transactions
+    ])
+
+    // put block into db
+    await this.putBlock(newBlock)
+
+    // submit block to root chain
+    const root = utils.bufferToHex(newBlock.header.root)
+    try {
+      await this._sendTransaction({
+        gasLimit: 100000,
+        to: this.parentContract.options.address,
+        data: this.parentContract.methods.submitBlock(root).encodeABI()
+      })
+    } catch (e) {
+      console.log(`Error while submitting the new root: ${root}`, e)
+    }
   }
 
   async addTx(txBytes) {
     // get tx
     const tx = new Transaction(rlp.decode(txBytes))
 
-    // validate
+    // tx must not be deposit transaction
+    if (tx.isDepositTx()) {
+      return
+    }
+
     const isValid = await tx.validate(this)
     if (!isValid) {
       return
@@ -74,10 +162,15 @@ class Chain {
 
     // add tx to pool
     await this.txPool.push(tx)
-    console.log((await this.txPool.popTxs()).map(t => t.toJSON(true)))
+
+    // fetch merkle hash
+    const hash = tx.merkleHash()
+
+    // log tx pool entry
+    console.log(`New transaction added into pool: ${utils.bufferToHex(hash)}`)
 
     // return merkle hash for reference
-    return tx.merkleHash()
+    return hash
   }
 
   async addDepositBlock(header, txs) {
@@ -85,6 +178,8 @@ class Chain {
       [header, txs.map(tx => rlp.decode(tx))],
       true
     )
+
+    // put deposit block into db
     await this.putBlock(depositBlock)
   }
 
@@ -103,6 +198,7 @@ class Chain {
         .then(encodedBlock => {
           return new Block(rlp.decode(encodedBlock))
         })
+        .catch(e => {})
     }
 
     const lookupNumberToHash = hexString => {
@@ -160,49 +256,63 @@ class Chain {
     }
 
     const blockHash = block.hash
-    const blockHashHexString = blockHash.toString('hex')
+    const blockHashHexString = utils.bufferToHex(blockHash)
+    const blockNumber = new BN(block.header.number)
     const dbOps = []
 
     if (!this.validate) {
-      const message = await block.validate(this)
-      if (message) {
-        throw new Error(message)
+      const isValid = await block.validate(this)
+      if (!isValid) {
+        throw new Error('Invalid block')
       }
     }
 
-    // store the block details
-    const blockDetails = {
-      hash: blockHashHexString,
-      header: block.header.toJSON(true)
+    if (!blockNumber.isZero()) {
+      // store the block details
+      const blockDetails = {
+        hash: blockHashHexString,
+        number: utils.bufferToHex(block.header.number),
+        totalTxs: block.transactions.length,
+        header: block.header.toJSON(true)
+      }
+
+      // hash -> details
+      dbOps.push({
+        db: 'details',
+        type: 'put',
+        key: 'detail:' + blockHashHexString,
+        valueEncoding: 'json',
+        value: blockDetails
+      })
+
+      // block hash -> block
+      dbOps.push({
+        db: 'block',
+        type: 'put',
+        key: blockHash,
+        keyEncoding: 'binary',
+        valueEncoding: 'binary',
+        value: block.serialize()
+      })
+
+      // number -> hash
+      dbOps.push({
+        db: 'details',
+        type: 'put',
+        key: blockNumber.toString(),
+        valueEncoding: 'binary',
+        value: blockHash
+      })
     }
 
-    // block details
-    dbOps.push({
-      db: 'details',
-      type: 'put',
-      key: 'detail:' + blockHashHexString,
-      valueEncoding: 'json',
-      value: blockDetails
-    })
-
-    // serialize block and store to db
+    // root -> block
     dbOps.push({
       db: 'block',
       type: 'put',
-      key: blockHash,
+      key: block.header.root,
       keyEncoding: 'binary',
       valueEncoding: 'binary',
       value: block.serialize()
-    })
-
-    // index by number
-    const blockNumber = new BN(block.header.number).toString()
-    dbOps.push({
-      db: 'details',
-      type: 'put',
-      key: blockNumber,
-      valueEncoding: 'binary',
-      value: blockHash
     })
 
     await this._batchDbOps(dbOps)
@@ -228,6 +338,32 @@ class Chain {
       this.blockDb.batch(blockDbOps),
       this.detailsDb.batch(detailsDbOps)
     ])
+  }
+
+  async _sendTransaction(options = {}) {
+    if (!options.gasLimit) {
+      throw new Error('`gasLimit` is required')
+    }
+
+    const from = this.options.authority.address
+    const [nonce, gasPrice, chainId] = await Promise.all([
+      this.web3.eth.getTransactionCount(from, 'pending'),
+      this.web3.eth.getGasPrice(),
+      this.web3.eth.net.getId()
+    ])
+
+    const tx = new EthereumTx({
+      from: from,
+      to: options.to || '0x',
+      data: options.data || '0x',
+      value: options.value || '0x',
+      gasLimit: utils.bufferToHex(new BN(options.gasLimit).toBuffer()),
+      nonce: utils.bufferToHex(new BN(nonce).toBuffer()),
+      gasPrice: utils.bufferToHex(new BN(gasPrice).toBuffer()),
+      chainId: utils.bufferToHex(new BN(chainId).toBuffer())
+    })
+    tx.sign(utils.toBuffer(this.options.authority.privateKey))
+    return this.web3.eth.sendSignedTransaction(tx.serialize())
   }
 }
 

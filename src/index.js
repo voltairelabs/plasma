@@ -8,9 +8,9 @@ require('./server')
 const chain = require('./chain').default
 chain.start()
 
-process.on('SIGINT', function() {
+process.on('SIGINT', async () => {
   console.log('Stopping plasma chain')
-  chain.stop()
+  await chain.stop()
   process.exit()
 })
 

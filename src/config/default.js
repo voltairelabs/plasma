@@ -14,10 +14,22 @@ export default {
     port: process.env.APP_PORT || 8080
   },
   chain: {
-    db: './db',
+    db: process.env.CHAIN_DB || './db',
+    blockPeriod: parseInt(process.env.CHAIN_BLOCK_PERIOD || 6), // submit block after every 6 root blocks
+    web3Provider: process.env.CHAIN_WEB3_PROVIDER || 'http://localhost:8545',
+    rootChainContract:
+      process.env.CHAIN_ROOT_CONTRACT ||
+      '0xb4ee6879ba231824651991c8f0a34af4d6bfca6a',
+    daggerEndpoint: process.env.CHAIN_DAGGER || 'mqtt://localhost:1883',
 
-    web3Provider: 'http://localhost:8545',
-    rootChainContract: '0xb4ee6879ba231824651991c8f0a34af4d6bfca6a',
-    daggerEndpoint: 'mqtt://localhost:1883'
+    // authority details
+    authority: {
+      address:
+        process.env.CHAIN_AUTHORITY_ADDRESS ||
+        '0x9fB29AAc15b9A4B7F17c3385939b007540f4d791',
+      privateKey:
+        process.env.CHAIN_AUTHORITY_PRIVATE_KEY ||
+        '0x9b28f36fbd67381120752d6172ecdcf10e06ab2d9a1367aac00cdcd6ac7855d3'
+    }
   }
 }

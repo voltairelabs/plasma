@@ -7,9 +7,8 @@ import Transaction from './transaction'
 const rlp = utils.rlp
 
 export default class Block {
-  constructor(data = [[], []], isDepositBlock = false) {
+  constructor(data = [[], []]) {
     this.transactions = []
-    this.isDepositBlock = isDepositBlock
 
     if (Buffer.isBuffer(data)) {
       data = rlp.decode(data)
@@ -74,7 +73,7 @@ export default class Block {
     const p = []
     for (let i = 0; i < this.transactions.length; i++) {
       const tx = this.transactions[i]
-      p.push(tx.validateForBlock(chain, this.isDepositBlock))
+      p.push(tx.validate(chain))
     }
 
     const results = await Promise.all(p)

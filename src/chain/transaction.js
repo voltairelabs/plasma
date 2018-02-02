@@ -127,35 +127,29 @@ export default class Transaction {
     return rlp.encode(items)
   }
 
-  // check if transaction is valid
-  _validateFields(depositTx = false) {
-    if (depositTx) {
-      // invalid if any input is not null
-      if (!this._inputNull(0) || !this._inputNull(1)) {
-        return false
-      }
+  // check if transaction is valid for deposit
+  isDepositTx() {
+    // invalid if any input is not null
+    if (!this._inputNull(0) || !this._inputNull(1)) {
+      return false
+    }
 
-      // invalid if 1st output is null
-      if (this._outputNull(0)) {
-        return false
-      }
-    } else {
-      // invalid if 1st input is null
-      if (this._inputNull(0)) {
-        return false
-      }
-
-      // invalid if both inputs are same
-      if (this._inputKey(0) === this._inputKey(1)) {
-        return false
-      }
+    // invalid if 1st output is null
+    if (this._outputNull(0)) {
+      return false
     }
 
     return true
   }
 
-  async validate(chain, depositTx = false) {
-    if (!this._validateFields(depositTx)) {
+  async validate(chain) {
+    // valid if tx is deposit tx
+    if (this.isDepositTx()) {
+      return true
+    }
+
+    // invalid if both inputs are same
+    if (this._inputKey(0) === this._inputKey(1)) {
       return false
     }
 
