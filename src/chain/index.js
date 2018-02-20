@@ -8,25 +8,31 @@ import {Buffer} from 'safe-buffer'
 import config from '../config'
 import Block from './block'
 import Transaction from './transaction'
-import TxPool from './txpool'
+import TxPool from './txPool'
+import SyncManager from './sync-manager'
 import FixedMerkleTree from '../lib/fixed-merkle-tree'
 
 import RootChain from '../../build/contracts/RootChain.json'
 
 const BN = utils.BN
 const rlp = utils.rlp
+const defaultDBOptions = {
+  keyEncoding: 'binary',
+  valueEncoding: 'binary'
+}
 
 class Chain {
   constructor(options = {}) {
     this.options = options
-    this.blockDb = level(`${this.options.db}/block`)
-    this.detailsDb = level(`${this.options.db}/details`)
-    this.txPool = new TxPool(
-      level(`${this.options.db}/txpool`, {
-        keyEncoding: 'binary',
-        valueEncoding: 'binary'
-      })
-    )
+    this.blockDb = level(`${this.options.db}/block`, defaultDBOptions)
+    this.detailsDb = level(`${this.options.db}/details`, defaultDBOptions)
+    this.txPoolDb = level(`${this.options.db}/txPool`, defaultDBOptions)
+
+    // transaction pool
+    this.txPool = new TxPool(this.txPoolDb)
+
+    // sync manager
+    this.syncManager = new SyncManager(this, this.options.network)
 
     // create instance for web3
     this.web3 = new Web3(this.options.web3Provider)
@@ -45,18 +51,26 @@ class Chain {
     // Watchers
     //
 
-    // watch root chain's block
-    this._rootBlock = this._rootBlock.bind(this)
-    this.daggerObject.on('latest:block.number', this._rootBlock)
+    // watch root chain's block (and submit block)
+    if (this.options.authorizedNode) {
+      this._rootBlock = this._rootBlock.bind(this)
+      this.daggerObject.on('latest:block.number', this._rootBlock)
+    }
 
     // block watcher
     this.blockWatcher = this.parentDaggerContract.events.ChildBlockCreated()
 
     // deposit block watcher
     this.depositBlockWatcher = this.parentDaggerContract.events.DepositBlockCreated()
+
+    // exit event watcher
+    this.exitEventWatcher = this.parentDaggerContract.events.StartExit()
   }
 
   async start() {
+    // start sync manager
+    await this.syncManager.start()
+
     // start listening block
     this.blockWatcher.watch((data, removed) => {
       const {blockNumber, root} = data.returnValues
@@ -77,6 +91,19 @@ class Chain {
         [txBytes] // tx list
       )
     })
+
+    // start listening exits and mark them spent
+    this.exitEventWatcher.watch(data => {
+      const {owner, blockNumber, txIndex, outputIndex} = data.returnValues
+
+      // mark utxo spent after 2 sec
+      // TODO use better method to mark exited UTXO
+      setTimeout(() => {
+        this._markUTXOSpent(
+          Transaction.keyForUTXO(owner, blockNumber, txIndex, outputIndex)
+        )
+      }, 2000)
+    })
   }
 
   async stop() {
@@ -88,6 +115,12 @@ class Chain {
 
     // stop watching deposit block
     this.depositBlockWatcher.stopWatching()
+
+    // stop watching exit event
+    this.exitEventWatcher.stopWatching()
+
+    // stop sync manager
+    await this.syncManager.stop()
   }
 
   async _updateBlockNumber(root, blockNumber) {
@@ -147,7 +180,7 @@ class Chain {
     }
   }
 
-  async addTx(txBytes) {
+  async addTx(txBytes, exclude) {
     // get tx
     const tx = new Transaction(rlp.decode(txBytes))
 
@@ -161,30 +194,27 @@ class Chain {
       return
     }
 
-    // check if any tx input is already spent
+    // check if any tx input is already spent or exited
     for (let i = 0; i < tx.totalInputs; i++) {
-      const sender = tx.senderByInputIndex(i)
-      if (sender) {
-        const [blkNumber, txIndex, oIndex] = tx.positionsByInputIndex(i)
-        const keyForUTXO = Buffer.concat([
-          config.prefixes.utxo,
-          utils.toBuffer(sender),
-          new BN(blkNumber).toArrayLike(Buffer, 'be', 32), // block number
-          new BN(txIndex).toArrayLike(Buffer, 'be', 32), // tx index
-          new BN(oIndex).toArrayLike(Buffer, 'be', 32) // output index
-        ])
-
-        let valueForUTXO = null
+      const keyForUTXO = tx.keyForUTXOByInputIndex(i)
+      if (keyForUTXO) {
         try {
-          valueForUTXO = await this.detailsDb.get(keyForUTXO, {
-            keyEncoding: 'binary',
-            valueEncoding: 'binary'
-          })
+          // check if utxo exist for given key
+          await this.detailsDb.get(keyForUTXO)
         } catch (e) {
+          // utxo has been spent as no value present
           return
         }
 
-        if (!valueForUTXO) {
+        // check if already exited
+        const exitId = +await this.parentContract.methods
+          .exitIds(tx.exitIdByInputIndex(i))
+          .call()
+
+        // if exit id > 0, utxo has been exited
+        if (exitId > 0) {
+          // mark it spent
+          await this._markUTXOSpent(keyForUTXO)
           return
         }
       }
@@ -198,6 +228,11 @@ class Chain {
 
     // log tx pool entry
     console.log(`New transaction added into pool: ${utils.bufferToHex(hash)}`)
+
+    // broadcast tx to peers
+    setTimeout(() => {
+      this.syncManager.broadcastNewTx(txBytes, exclude)
+    })
 
     // return merkle hash for reference
     return hash
@@ -221,10 +256,7 @@ class Chain {
   async getBlock(blockTag) {
     const lookupByHash = hash => {
       return this.blockDb
-        .get(hash, {
-          keyEncoding: 'binary',
-          valueEncoding: 'binary'
-        })
+        .get(hash)
         .then(encodedBlock => {
           return new Block(rlp.decode(encodedBlock))
         })
@@ -233,9 +265,7 @@ class Chain {
 
     const lookupNumberToHash = hexString => {
       const key = new BN(hexString).toString()
-      return this.detailsDb.get(key, {
-        valueEncoding: 'binary'
-      })
+      return this.detailsDb.get(key).catch(e => {})
     }
 
     // determine BlockTag type
@@ -245,24 +275,40 @@ class Chain {
 
     if (/^[0-9]+$/gi.test(String(blockTag))) {
       const blockHash = await lookupNumberToHash(blockTag)
-      return lookupByHash(blockHash)
+      if (blockHash) {
+        return lookupByHash(blockHash)
+      }
     }
 
     return null
   }
 
   /**
-   * Gets a block by its hash
-   * @method getBlockInfo
+   * Gets block details by block has
+   * @method getDetails
    * @param {String} hash - the sha256 hash of the rlp encoding of the block
    */
   async getDetails(hash) {
     // key will be ['blockDetails', hash]
     const key = Buffer.concat([config.prefixes.blockDetails, hash])
     return this.detailsDb.get(key, {
-      keyEncoding: 'binary',
       valueEncoding: 'json'
     })
+  }
+
+  /**
+   * Gets a latest block details
+   * @method getLatestHead
+   */
+  async getLatestHead() {
+    const key = Buffer.concat([config.prefixes.latestHead])
+    return this.detailsDb
+      .get(key, {
+        valueEncoding: 'json'
+      })
+      .catch(e => {
+        // supress key error for new node
+      })
   }
 
   /**
@@ -308,12 +354,20 @@ class Chain {
         header: block.header.toJSON(true)
       }
 
+      // put chain head
+      dbOps.push({
+        db: 'details',
+        type: 'put',
+        key: Buffer.concat([config.prefixes.latestHead]),
+        valueEncoding: 'json',
+        value: blockDetails
+      })
+
       // hash -> details
       dbOps.push({
         db: 'details',
         type: 'put',
         key: Buffer.concat([config.prefixes.blockDetails, blockHash]),
-        keyEncoding: 'binary',
         valueEncoding: 'json',
         value: blockDetails
       })
@@ -323,8 +377,6 @@ class Chain {
         db: 'block',
         type: 'put',
         key: blockHash,
-        keyEncoding: 'binary',
-        valueEncoding: 'binary',
         value: block.serialize()
       })
 
@@ -333,7 +385,6 @@ class Chain {
         db: 'details',
         type: 'put',
         key: blockNumber.toString(),
-        valueEncoding: 'binary',
         value: blockHash
       })
 
@@ -344,8 +395,6 @@ class Chain {
           db: 'details',
           type: 'put',
           key: Buffer.concat([config.prefixes.tx, tx.merkleHash()]),
-          keyEncoding: 'binary',
-          valueEncoding: 'binary',
           value: tx.serializeTx(true)
         })
 
@@ -363,9 +412,7 @@ class Chain {
                 new BN(blkNumber).toArrayLike(Buffer, 'be', 32), // block number
                 new BN(txIndex).toArrayLike(Buffer, 'be', 32), // tx index
                 new BN(oIndex).toArrayLike(Buffer, 'be', 32) // output index
-              ]),
-              keyEncoding: 'binary',
-              valueEncoding: 'binary'
+              ])
             })
           }
         }
@@ -381,11 +428,16 @@ class Chain {
               new BN(txIndex).toArrayLike(Buffer, 'be', 32), // current tx index
               new BN(i).toArrayLike(Buffer, 'be', 32) // output index
             ]),
-            keyEncoding: 'binary',
-            valueEncoding: 'binary',
             value: tx.serializeTx(true)
           })
         }
+
+        // remove tx from pool
+        dbOps.push({
+          db: 'txPool',
+          type: 'del',
+          key: this.txPool.keyForTx(tx)
+        })
       })
     }
 
@@ -394,8 +446,6 @@ class Chain {
       db: 'block',
       type: 'put',
       key: block.header.root,
-      keyEncoding: 'binary',
-      valueEncoding: 'binary',
       value: block.serialize()
     })
 
@@ -405,6 +455,7 @@ class Chain {
   async _batchDbOps(dbOps) {
     const blockDbOps = []
     const detailsDbOps = []
+    const txPoolDbOps = []
     dbOps.forEach(op => {
       switch (op.db) {
         case 'block':
@@ -413,6 +464,9 @@ class Chain {
         case 'details':
           detailsDbOps.push(op)
           break
+        case 'txPool':
+          txPoolDbOps.push(op)
+          break
         default:
           throw new Error('DB op did not specify known db:', op)
       }
@@ -420,8 +474,15 @@ class Chain {
 
     return Promise.all([
       this.blockDb.batch(blockDbOps),
-      this.detailsDb.batch(detailsDbOps)
+      this.detailsDb.batch(detailsDbOps),
+      this.txPoolDb.batch(txPoolDbOps)
     ])
+  }
+
+  async _markUTXOSpent(_keyForUTXO) {
+    const keyForUTXO = utils.toBuffer(_keyForUTXO)
+    // remove utxo for exited utxo
+    return this.detailsDb.del(keyForUTXO)
   }
 
   async _sendTransaction(options = {}) {
