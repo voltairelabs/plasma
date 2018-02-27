@@ -236,7 +236,7 @@ contract('Root chain', function(accounts) {
 
     // There is a spectial condition in the MVP spec:
     // "However, if when calling exit, the block that the UTXO was created in is more than 7 days old, then the blknum of the oldest Plasma block that is less than 7 days old is used instead."
-    // This condition is needed so that very old UTXOs don't overwite the tip of teh priority queue.
+    // This condition is needed so that very old UTXOs don't overwrite the tip of the priority queue.
     // If people would submit exits from older and older utxos, then no-one could ever exit, because waiting would start from 0 again and again at the tip of the queue.
     // Yet, this condition also means that old UTXOs (older than 7 days) might receive the same priority, if they exit short after each other and hold the same position in block.
     // This test makes sure that exitId is used instead of priority to store the records, hence avoiding collisions (which existed in previous implementations due to use of priority for hash map key).
