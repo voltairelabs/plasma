@@ -1,6 +1,6 @@
 # Plasma MVP
 
-[![Build Status](https://travis-ci.org/maticnetwork/plasma.svg?branch=master)](https://travis-ci.org/maticnetwork/plasma)
+[![Build Status](https://travis-ci.org/voltairelabs/plasma.svg?branch=master)](https://travis-ci.org/voltairelabs/plasma)
 
 Install dependencies with
 
